@@ -43,6 +43,7 @@
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "driver/i2c.h"
+#include "sdkconfig.h"
 
 #include "BNO080.h"
 
@@ -62,8 +63,6 @@
 #define ACK_CHECK_EN                       0x1              /*!< I2C master will check ack from slave*/
 #define ACK_CHECK_DIS                      0x0              /*!< I2C master will not check ack from slave */
 #define ACK_VAL                            0x0              /*!< I2C ack value */
-
-
 #define NACK_VAL                           0x1              /*!< I2C nack value */
 
 static const char *TAG = "i2c_restart";
@@ -76,7 +75,7 @@ static esp_err_t i2c_master_read_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr,
     if (size == 0) {
         return ESP_OK;
     }
-    
+
     int ret;
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
@@ -93,8 +92,27 @@ static esp_err_t i2c_master_read_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr,
     cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, i2c_addr << 1 | READ_BIT, ACK_CHECK_EN);
-    // i2c_master_read_byte(cmd, data_h, ACK_VAL);
-    i2c_master_read_byte(cmd, data_rd, NACK_VAL);
+    if (size > 1)
+        i2c_master_read(cmd, data_rd, size - 1, (i2c_ack_type_t) ACK_VAL);
+    i2c_master_read_byte(cmd, data_rd + (size - 1), (i2c_ack_type_t)NACK_VAL);
+    i2c_master_stop(cmd);
+    ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+    i2c_cmd_link_delete(cmd);
+    return ret;
+}
+
+static esp_err_t i2c_master_read_4_bytesslave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t* data_rd, size_t size)
+{
+    if (size == 0) {
+        return ESP_OK;
+    }
+    int ret;
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, i2c_addr << 1 | READ_BIT, ACK_CHECK_EN);
+    if (size > 1)
+        i2c_master_read(cmd, data_rd, size - 1, (i2c_ack_type_t) ACK_VAL);
+    i2c_master_read_byte(cmd, data_rd + (size - 1), (i2c_ack_type_t)NACK_VAL);
     i2c_master_stop(cmd);
     ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
     i2c_cmd_link_delete(cmd);
@@ -118,12 +136,19 @@ static esp_err_t i2c_master_write_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr
     return ret;
 }
 
-
 /* Read contents of a MX register
 ---------------------------------------------------------------------------*/
 esp_err_t rdBNO80( uint8_t reg, uint8_t *pdata, uint8_t count )
 {
     return ( i2c_master_read_slave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR,  reg, pdata, count ) );
+}
+
+
+/* Read contents of a MX register
+---------------------------------------------------------------------------*/
+esp_err_t rdBNO80Packet( uint8_t reg, uint8_t *pdata, uint8_t count )
+{
+    return ( i2c_master_read_4_bytesslave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR, pdata, count ) );
 }
 
 /* Write value to specified MMA8451 register
@@ -133,7 +158,7 @@ esp_err_t wrBNO80( uint8_t reg, uint8_t *pdata, uint8_t count )
     return ( i2c_master_write_slave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR,  reg, pdata, count ) );
 }
 
-static void i2c_master_init()
+static esp_err_t i2c_master_init()
 {
     int i2c_master_port = I2C_PORT_NUM;
     i2c_config_t conf;
@@ -152,7 +177,7 @@ static void i2c_master_init()
         return err;
     }
     i2c_driver_install(i2c_master_port, conf.mode,
-            I2C_RX_BUF_DISABLE, I2C_TX_BUF_DISABLE, 0);
+                       I2C_RX_BUF_DISABLE, I2C_TX_BUF_DISABLE, 0);
 }
 
 
@@ -166,17 +191,16 @@ bool BNO080::begin()
     //Begin by resetting the IMU
     uint8_t action = 2;                  // 1 = reset, 2 = on; 3 = sleep
     uint8_t reset_BNO[4] = {0, 1, 0, action};
-    // i2c->write_multiplebytes(5, reset_BNO, 4);
+    wrBNO80(5, reset_BNO , 4);
 
-    // usleep(200000);
+    vTaskDelay(200 / portTICK_RATE_MS);
     uint8_t seqNum_2 = 1;
     uint8_t init[15] = {0, 2, seqNum_2, 0xF2, 0, 0x04, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
-    // i2c->write_multiplebytes(16, init, 15);
-
-
+    wrBNO80(16, init , 15);
     printf ("******** initialize **********\n");
 
-    // usleep(2000000);                                                                      // wait until response is available
+    vTaskDelay(2000 / portTICK_RATE_MS);
+    // wait until response is available
     receivePacket();                                                                  // to report response
     receivePacket();
     receivePacket();
@@ -853,7 +877,7 @@ bool BNO080::waitForI2C()
 {
 //  for (uint8_t counter = 0 ; counter < 100 ; counter++) //Don't got more than 255
 //  {
-  // if (i2c->available() > 0) return (true);
+    // if (i2c->available() > 0) return (true);
 
 //  }
 
