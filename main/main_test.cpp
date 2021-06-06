@@ -30,6 +30,7 @@ void app_main(void)
 
   for(;;){
     if(tt.dataAvailable() == true){
+      printf("data :: %f\n",tt.getQuatI());
       // cout << "Data: " << tt.getQuatI() << endl;
     }
   }

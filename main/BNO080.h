@@ -36,7 +36,7 @@ typedef unsigned char byte;
 #define BNO080_DEFAULT_ADDRESS 0x4B
 
 //The catch-all default is 32
-#define I2C_BUFFER_LENGTH 32
+#define I2C_BUFFER_LENGTH 200
 
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 

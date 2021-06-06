@@ -69,6 +69,8 @@ static const char *TAG = "i2c_restart";
 
 #define BNO080_I2C_ADDR 0x12
 
+#define BNOO80_LOG_ENABLED
+
 
 static esp_err_t i2c_master_read_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t i2c_reg, uint8_t* data_rd, size_t size)
 {
@@ -97,11 +99,13 @@ static esp_err_t i2c_master_read_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr,
     i2c_master_read_byte(cmd, data_rd + (size - 1), (i2c_ack_type_t)NACK_VAL);
     i2c_master_stop(cmd);
     ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+    if (ret != ESP_OK)
+        printf("Error in::i2c_master_read_slave_reg");
     i2c_cmd_link_delete(cmd);
     return ret;
 }
 
-static esp_err_t i2c_master_read_4_bytesslave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t* data_rd, size_t size)
+static esp_err_t i2c_master_read_bytesslave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t* data_rd, size_t size)
 {
     if (size == 0) {
         return ESP_OK;
@@ -115,6 +119,8 @@ static esp_err_t i2c_master_read_4_bytesslave_reg(i2c_port_t i2c_num, uint8_t i2
     i2c_master_read_byte(cmd, data_rd + (size - 1), (i2c_ack_type_t)NACK_VAL);
     i2c_master_stop(cmd);
     ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+    if (ret != ESP_OK)
+        printf("Error in::i2c_master_read_bytesslave_reg");
     i2c_cmd_link_delete(cmd);
     return ret;
 }
@@ -132,6 +138,25 @@ static esp_err_t i2c_master_write_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr
     i2c_master_write(cmd, data_wr, size, ACK_CHECK_EN);
     i2c_master_stop(cmd);
     esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+    if (ret != ESP_OK)
+        printf("Error in::i2c_master_write_slave_reg");
+    i2c_cmd_link_delete(cmd);
+    return ret;
+}
+
+
+static esp_err_t i2c_master_write_slavePacket_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t* data_wr, size_t size)
+{
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    // first, send device address (indicating write) & register to be written
+    i2c_master_write_byte(cmd, ( i2c_addr << 1 ) | WRITE_BIT, ACK_CHECK_EN);
+    // send register we want
+    i2c_master_write(cmd, data_wr, size, ACK_CHECK_EN);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+    if (ret != ESP_OK)
+        printf("Error in::i2c_master_write_slavePacket_reg");
     i2c_cmd_link_delete(cmd);
     return ret;
 }
@@ -146,9 +171,9 @@ esp_err_t rdBNO80( uint8_t reg, uint8_t *pdata, uint8_t count )
 
 /* Read contents of a MX register
 ---------------------------------------------------------------------------*/
-esp_err_t rdBNO80Packet( uint8_t reg, uint8_t *pdata, uint8_t count )
+esp_err_t rdBNO80Packet( uint8_t *pdata, uint8_t count )
 {
-    return ( i2c_master_read_4_bytesslave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR, pdata, count ) );
+    return ( i2c_master_read_bytesslave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR, pdata, count ) );
 }
 
 /* Write value to specified MMA8451 register
@@ -156,6 +181,11 @@ esp_err_t rdBNO80Packet( uint8_t reg, uint8_t *pdata, uint8_t count )
 esp_err_t wrBNO80( uint8_t reg, uint8_t *pdata, uint8_t count )
 {
     return ( i2c_master_write_slave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR,  reg, pdata, count ) );
+}
+
+esp_err_t wrBNO80Packet( uint8_t *pdata, uint8_t count )
+{
+    return ( i2c_master_write_slavePacket_reg( I2C_PORT_NUM, BNO080_I2C_ADDR, pdata, count ) );
 }
 
 static esp_err_t i2c_master_init()
@@ -199,13 +229,11 @@ bool BNO080::begin()
     wrBNO80(16, init , 15);
     printf ("******** initialize **********\n");
 
-    vTaskDelay(2000 / portTICK_RATE_MS);
+    vTaskDelay(20 / portTICK_RATE_MS);
     // wait until response is available
     receivePacket();                                                                  // to report response
     receivePacket();
     receivePacket();
-
-    //
 
     //Check communication with device
     shtpData[0] = SHTP_REPORT_PRODUCT_ID_REQUEST; //Request the product ID and reset info
@@ -891,32 +919,43 @@ bool BNO080::receivePacket(void)
 {
     // // i2c->write_byte(0, (uint8_t)4); //Ask for four bytes to find out how much data we need to read
     // //if (waitForI2C() == false) return (false); //Error
+    uint8_t new_data[4];
+    esp_err_t err = rdBNO80Packet(new_data, 4);
 
-    // //Get the first four bytes, aka the packet header
-    // // uint8_t packetLSB = i2c->read_only();
-    // // uint8_t packetMSB = i2c->read_only();
-    // // uint8_t channelNumber = i2c->read_only();
-    // // uint8_t sequenceNumber = i2c->read_only(); //Not sure if we need to store this or not
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "There is no data from the sensor!");
+    }
+
+    //Get the first four bytes, aka the packet header
+    uint8_t packetLSB = new_data[0];
+    uint8_t packetMSB = new_data[1];
+    uint8_t channelNumber = new_data[2];
+    uint8_t sequenceNumber = new_data[3]; //Not sure if we need to store this or not
+
+#ifdef BNOO80_LOG_ENABLED
+    for (int i = 0; i < 4; i++)
+        printf("%d::%02x \n", i, new_data[1]);
+#endif
 
     // //Store the header info.
-    // shtpHeader[0] = packetLSB;
-    // shtpHeader[1] = packetMSB;
-    // shtpHeader[2] = channelNumber;
-    // shtpHeader[3] = sequenceNumber;
+    shtpHeader[0] = packetLSB;
+    shtpHeader[1] = packetMSB;
+    shtpHeader[2] = channelNumber;
+    shtpHeader[3] = sequenceNumber;
 
     // //Calculate the number of data bytes in this packet
-    // int16_t dataLength = ((uint16_t)packetMSB << 8 | packetLSB);
-    // dataLength &= ~(1 << 15); //Clear the MSbit.
-    // //This bit indicates if this package is a continuation of the last. Ignore it for now.
-    // //TODO catch this as an error and exit
-    // if (dataLength == 0)
-    // {
-    //     //Packet is empty
-    //     return (false); //All done
-    // }
-    // dataLength -= 4; //Remove the header bytes from the data count
-
-    // getData(dataLength);
+    int16_t dataLength = ((uint16_t)packetMSB << 8 | packetLSB);
+    dataLength &= ~(1 << 15); //Clear the MSbit.
+    //This bit indicates if this package is a continuation of the last. Ignore it for now.
+    //TODO catch this as an error and exit
+    if (dataLength == 0)
+    {
+        //Packet is empty
+        return (false); //All done
+    }
+    dataLength -= 4; //Remove the header bytes from the data count
+    printf("Packet length is :: %d", dataLength);
+    getData(dataLength);
 
     return (true); //We're done!
 }
@@ -926,33 +965,31 @@ bool BNO080::receivePacket(void)
 //Arduino I2C read limit is 32 bytes. Header is 4 bytes, so max data we can read per interation is 28 bytes
 bool BNO080::getData(uint16_t bytesRemaining)
 {
+    printf("calling getData() %d", bytesRemaining);
     uint16_t dataSpot = 0; //Start at the beginning of shtpData array
     //Setup a series of chunked 32 byte reads
     while (bytesRemaining > 0)
     {
         uint16_t numberOfBytesToRead = bytesRemaining;
-        if (numberOfBytesToRead > (I2C_BUFFER_LENGTH - 4)) numberOfBytesToRead = (I2C_BUFFER_LENGTH - 4);
-
-        // i2c->write_byte(0, (uint8_t)(numberOfBytesToRead + 4));
-        if (waitForI2C() == false) return (0); //Error
+        // if (numberOfBytesToRead > (I2C_BUFFER_LENGTH - 4)) numberOfBytesToRead = (I2C_BUFFER_LENGTH - 4);
+        uint8_t new_array[numberOfBytesToRead + 5];
+        rdBNO80Packet(new_array, numberOfBytesToRead + 4); // i2c->write_byte(0, (uint8_t)(numberOfBytesToRead + 4));
         //The first four bytes are header bytes and are throw away
         // i2c->read_only();
         // i2c->read_only();
         // i2c->read_only();
         // i2c->read_only();
-        for (uint8_t x = 0 ; x < numberOfBytesToRead ; x++)
+        for (uint8_t x = 4 ; x < numberOfBytesToRead + 4 ; x++)
         {
             // uint8_t incoming = i2c->read_only();
             if (dataSpot < MAX_PACKET_SIZE)
             {
-                // shtpData[dataSpot++] = incoming; //Store data into the shtpData array
-            }
-            else
-            {
-                //Do nothing with the data
+                shtpData[dataSpot++] = new_array[x]; //Store data into the shtpData array
+#ifdef BNOO80_LOG_ENABLED
+                printf("shtpData[%d] = %02x\n", dataSpot - 1, new_array[x]);
+#endif
             }
         }
-
         bytesRemaining -= numberOfBytesToRead;
     }
     return (true); //Done!
@@ -964,23 +1001,33 @@ bool BNO080::getData(uint16_t bytesRemaining)
 bool BNO080::sendPacket(uint8_t channelNumber, uint8_t dataLength)
 {
     uint8_t packetLength = dataLength + 4; //Add four bytes for the header
-    //if(packetLength > I2C_BUFFER_LENGTH) return(false); //You are trying to send too much. Break into smaller packets.
-
-    //does nothing
+    if (packetLength > I2C_BUFFER_LENGTH) return (false); //You are trying to send too much. Break into smaller packets.
     // i2c->beginTransmission(_deviceAddress);
-
-    //Send the 4 byte packet header
+    // Send the 4 byte packet header
+    uint8_t start_packet_data[4];
+    start_packet_data[0] = packetLength & 0xFF;
+    start_packet_data[1] = packetLength >> 8;
+    start_packet_data[2] = channelNumber;
+    start_packet_data[3] = sequenceNumber[channelNumber]++;
     // i2c->write_byte(0, packetLength & 0xFF); //Packet length LSB
     // i2c->write_byte(0, packetLength >> 8); //Packet length MSB
     // i2c->write_byte(0, channelNumber); //Channel number
     // i2c->write_byte(0, sequenceNumber[channelNumber]++); //Send the sequence number, increments with each packet sent, different counter for each channel
+    #ifdef BNOO80_LOG_ENABLED
+        printf("header packet sent \n");
+    #endif
 
+    wrBNO80Packet( start_packet_data , 4);
     //Send the user's data packet
+    uint8_t new_data[255];
     for (uint8_t i = 0 ; i < dataLength ; i++)
     {
+        new_data[i] = shtpData[i];
+#ifdef BNOO80_LOG_ENABLED
+        printf("%d :: %2x", i , new_data[i]);
+#endif
         // i2c->write_byte(shtpData[i]);
     }
-
     return (true);
 }
 
