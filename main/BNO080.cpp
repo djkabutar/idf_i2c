@@ -1,5 +1,5 @@
 /*
-  This is a library written for the BNO080
+  This is a library written for the BNO080123
   SparkFun sells these at its website: www.sparkfun.com
   Do you like this library? Help support SparkFun. Buy a board!
   https://www.sparkfun.com/products/14586
@@ -42,18 +42,23 @@
 #include "esp_log.h"
 #include "driver/i2c.h"
 #include "esp_log.h"
-#include "driver/i2c.h"
+// #include "driver/i2c.h"
+#include "driver/gpio.h"
 #include "sdkconfig.h"
 
 #include "BNO080.h"
+#include <cstring>
+#include "driver/gpio.h"
 
+#define GPIO_INPUT_IO_1    32
+#define GPIO_INPUT_PIN_SEL  ((1ULL<<GPIO_INPUT_IO_1))
 
 #define SAMPLE_PERIOD_MS        200
 
 #define I2C_SCL_IO              22  //19               /*!< gpio number for I2C master clock */
 #define I2C_SDA_IO              21  //18               /*!< gpio number for I2C master data  */
 #define I2C_FREQ_HZ             100000           /*!< I2C master clock frequency */
-#define I2C_PORT_NUM            I2C_NUM_1        /*!< I2C port number for master dev */
+#define I2C_PORT_NUM            I2C_NUM_0        /*!< I2C port number for master dev */
 #define I2C_TX_BUF_DISABLE      0                /*!< I2C master do not need buffer */
 #define I2C_RX_BUF_DISABLE      0                /*!< I2C master do not need buffer */
 
@@ -67,10 +72,11 @@
 
 static const char *TAG = "i2c_restart";
 
-#define BNO080_I2C_ADDR 0x12
+#define BNO080_I2C_ADDR 0x4A
 
-#define BNOO80_LOG_ENABLED
+// #define BNOO80_LOG_ENABLED
 
+uint8_t sequenceNumber[6] = {0, 0, 0, 0, 0, 0};
 
 static esp_err_t i2c_master_read_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t i2c_reg, uint8_t* data_rd, size_t size)
 {
@@ -108,7 +114,7 @@ static esp_err_t i2c_master_read_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr,
 static esp_err_t i2c_master_read_bytesslave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t* data_rd, size_t size)
 {
     if (size == 0) {
-        return ESP_OK;
+        return !ESP_OK;
     }
     int ret;
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -126,20 +132,22 @@ static esp_err_t i2c_master_read_bytesslave_reg(i2c_port_t i2c_num, uint8_t i2c_
 }
 
 
-static esp_err_t i2c_master_write_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t i2c_reg, uint8_t* data_wr, size_t size)
+static esp_err_t i2c_master_write_slave_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t* data_wr, size_t size)
 {
+
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     // first, send device address (indicating write) & register to be written
     i2c_master_write_byte(cmd, ( i2c_addr << 1 ) | WRITE_BIT, ACK_CHECK_EN);
-    // send register we want
-    i2c_master_write_byte(cmd, i2c_reg, ACK_CHECK_EN);
     // write the data
     i2c_master_write(cmd, data_wr, size, ACK_CHECK_EN);
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+    printf("Sending data \n" );
+    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, 10 / portTICK_RATE_MS);
     if (ret != ESP_OK)
-        printf("Error in::i2c_master_write_slave_reg");
+        ESP_LOGE(TAG, "Error in::i2c_master_write_slave_reg \n");
+    else
+        printf("data sent! \n");
     i2c_cmd_link_delete(cmd);
     return ret;
 }
@@ -178,9 +186,9 @@ esp_err_t rdBNO80Packet( uint8_t *pdata, uint8_t count )
 
 /* Write value to specified MMA8451 register
 ---------------------------------------------------------------------------*/
-esp_err_t wrBNO80( uint8_t reg, uint8_t *pdata, uint8_t count )
+esp_err_t wrBNO80(uint8_t *pdata, uint8_t count )
 {
-    return ( i2c_master_write_slave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR,  reg, pdata, count ) );
+    return ( i2c_master_write_slave_reg( I2C_PORT_NUM, BNO080_I2C_ADDR, pdata, count ) );
 }
 
 esp_err_t wrBNO80Packet( uint8_t *pdata, uint8_t count )
@@ -190,27 +198,89 @@ esp_err_t wrBNO80Packet( uint8_t *pdata, uint8_t count )
 
 static esp_err_t i2c_master_init()
 {
-    int i2c_master_port = I2C_PORT_NUM;
+    // ESP_LOGD(tag, ">> i2cScanner");
+    gpio_set_direction(GPIO_NUM_33, GPIO_MODE_INPUT_OUTPUT_OD);
+    gpio_set_level(GPIO_NUM_33, 0);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    gpio_set_level(GPIO_NUM_33, 1);
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    gpio_set_direction(GPIO_NUM_19, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(GPIO_NUM_19, GPIO_PULLUP_ONLY);
+    i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+
     i2c_config_t conf;
     conf.mode = I2C_MODE_MASTER;
-    conf.sda_io_num = I2C_SDA_IO;
+    conf.sda_io_num = 21;
+    conf.scl_io_num = 22;
     conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.scl_io_num = I2C_SCL_IO;
     conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.master.clk_speed = I2C_FREQ_HZ;
+    conf.master.clk_speed = 400000;
     conf.clk_flags = 0;
-    // i2c_param_config(i2c_master_port, &conf);
+    i2c_param_config(I2C_NUM_0, &conf);
 
-    esp_err_t err = i2c_param_config(I2C_PORT_NUM, &conf);
-    if (err != ESP_OK) {
-        ESP_LOGE( TAG , "Driver is not being initialised");
-        return err;
+    esp_err_t clkStretchErr = i2c_set_timeout(I2C_NUM_0, 1000000);
+    if (clkStretchErr != ESP_OK) {
+        ESP_LOGE(TAG, "Clock stretching is not being enabled!");
     }
-    i2c_driver_install(i2c_master_port, conf.mode,
-                       I2C_RX_BUF_DISABLE, I2C_TX_BUF_DISABLE, 0);
+
+    // After BNO resets it just respondes for particular time , and it goes back to sleep again.// So we need to tell the BNO to be on mode instantly.
+    int i;
+    esp_err_t espRc;
+    printf("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
+    printf("00:         ");
+    // vTaskDelay(pdMS_TO_TICKS(100));
+    for (i = 3; i < 0x78; i++) {
+        int d = 0x4A;
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (d << 1) | I2C_MASTER_WRITE, 1 /* expect ack */);
+        i2c_master_stop(cmd);
+
+        espRc = i2c_master_cmd_begin(I2C_NUM_0, cmd, 10 / portTICK_PERIOD_MS);
+        if (i % 16 == 0) {
+            printf("\n%.2x:", i);
+        }
+        if (espRc == 0) {
+            uint8_t action = 2;                  // 1 = reset, 2 = on; 3 = sleep
+            uint8_t reset_BNO[5] = {0, 1, 0, action};
+            // wrBNO80(reset_BNO , 4);
+            return ESP_OK;
+            printf(" %.2x", i);
+        } else {
+            printf(" --");
+        }
+        //ESP_LOGD(tag, "i=%d, rc=%d (0x%x)", i, espRc, espRc);
+        i2c_cmd_link_delete(cmd);
+    }
+    printf("\n");
+
+    return ESP_OK;
+
 }
 
 
+void configDevice() {
+    uint8_t init[16] = {16, 0, 2, 1, 0xF2, 0, 0x04, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+    wrBNO80(init, 16);
+}
+
+
+void gpioConfig() {
+    gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_INPUT;
+    //bit mask of the pins that you want to set,e.g.GPIO18/19
+    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    //disable pull-down mode
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    //disable pull-up mode
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+}
 //CTOR DTOR already implemented in .h
 
 //Attempt communication with the device
@@ -218,59 +288,112 @@ static esp_err_t i2c_master_init()
 bool BNO080::begin()
 {
 
-    //Begin by resetting the IMU
-    uint8_t action = 2;                  // 1 = reset, 2 = on; 3 = sleep
-    uint8_t reset_BNO[4] = {0, 1, 0, action};
-    wrBNO80(5, reset_BNO , 4);
+    i2c_master_init();
 
+    printf("Initialization of the i2c driver \n");
+    softReset();
+    flushChannel(0);
     vTaskDelay(200 / portTICK_RATE_MS);
-    uint8_t seqNum_2 = 1;
-    uint8_t init[15] = {0, 2, seqNum_2, 0xF2, 0, 0x04, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
-    wrBNO80(16, init , 15);
+    // turnOn();
+    // receivePacket();
     printf ("******** initialize **********\n");
-
-    vTaskDelay(20 / portTICK_RATE_MS);
-    // wait until response is available
-    receivePacket();                                                                  // to report response
-    receivePacket();
-    receivePacket();
-
+    // vTaskDelay(20 / portTICK_RATE_MS);
+    // receivePacket();                                                                  // to report response
+    // receivePacket();
     //Check communication with device
+    // vTaskDelay(200 / portTICK_RATE_MS);
     shtpData[0] = SHTP_REPORT_PRODUCT_ID_REQUEST; //Request the product ID and reset info
     shtpData[1] = 0; //Reserved
-
-    //Transmit packet on channel 2, 2 bytes
+    // //Transmit packet on channel 2, 2 bytes
     sendPacket(CHANNEL_CONTROL, 2);
 
-    //Now we wait for response
-    if (receivePacket() == true)
+
+    // //Now we wait for response
+    printf("Here recieving packet1\n");
+    if (receivePacket())
     {
+        printPacket();
+        printf("Here recieving packet %d %2x %2x\n", shtpData[0] == SHTP_REPORT_PRODUCT_ID_RESPONSE, shtpData[0], SHTP_REPORT_PRODUCT_ID_RESPONSE);
         if (shtpData[0] == SHTP_REPORT_PRODUCT_ID_RESPONSE)
         {
+            printf("SW Version Major: %2x \n", shtpData[2]);
+            printf(" SW Version Minor:%2x \n", shtpData[3]);
+            uint32_t SW_Part_Number = ((uint32_t)shtpData[7] << 24) | ((uint32_t)shtpData[6] << 16) | ((uint32_t)shtpData[5] << 8) | ((uint32_t)shtpData[4]);
+            printf(" SW Part Number: %2x \n", SW_Part_Number);
+            uint32_t SW_Build_Number = ((uint32_t)shtpData[11] << 24) | ((uint32_t)shtpData[10] << 16) | ((uint32_t)shtpData[9] << 8) | ((uint32_t)shtpData[8]);
+            printf(" SW Build Number: %4x \n", SW_Build_Number);
+            uint16_t SW_Version_Patch = ((uint16_t)shtpData[13] << 8) | ((uint16_t)shtpData[12]);
+            printf(" SW Version Patch: %2x \n", SW_Version_Patch);
+            gpioConfig();
+            flushChannel(0);
+            flushChannel(1);
+            // receivePacket();
+            // printPacket();
+            vTaskDelay(20 / portTICK_RATE_MS);
             return (true);
         }
-    }
+    } else
+        ESP_LOGE(TAG, "Receive packet error");
 
+    vTaskDelay(20 / portTICK_RATE_MS);
+    receivePacket();
     return (false); //Something went wrong
 }
-
-
-
-
 //Updates the latest variables if possible
 //Returns false if new readings are not available
 bool BNO080::dataAvailable(void)
 {
-    if (receivePacket() == true)
+    // printf("%d \n",gpio_get_level((gpio_num_t)GPIO_INPUT_IO_1));
+    if (gpio_get_level((gpio_num_t)GPIO_INPUT_IO_1))
+        return false;
+
+    // printf("dataAvailable() \n");
+
+    if (receivePacket())
     {
+        printf("dataAvailable %2x \n", shtpHeader[2]);
         //Check to see if this packet is a sensor reporting its data to us
         if (shtpHeader[2] == CHANNEL_REPORTS && shtpData[0] == SHTP_REPORT_BASE_TIMESTAMP)
         {
             parseInputReport(); //This will update the rawAccelX, etc variables depending on which feature report is found
             return (true);
+        } else if (shtpHeader[2] == CHANNEL_CONTROL)
+        {
+            return parseCommandReport(); //This will update responses to commands, calibrationStatus, etc.
+        }
+        else if (shtpHeader[2] == CHANNEL_GYRO)
+        {
+            // parseInputReport(); //This will update the rawAccelX, etc variables depending on which feature report is found
         }
     }
+    printPacket();
     return (false);
+}
+
+
+uint16_t BNO080::parseCommandReport(void)
+{
+    printf("parseCommandReport() %2x\n", shtpData[0]);
+    if (shtpData[0] == SHTP_REPORT_COMMAND_RESPONSE)
+    {
+        //The BNO080 responds with this report to command requests. It's up to use to remember which command we issued.
+        uint8_t command = shtpData[2]; //This is the Command byte of the response
+
+        if (command == COMMAND_ME_CALIBRATE)
+        {
+            calibrationStatus = shtpData[5 + 0]; //R0 - Status (0 = success, non-zero = fail)
+        }
+        return shtpData[0];
+    }
+    else
+    {
+        printPacket();
+        //This sensor report ID is unhandled.
+        //See reference manual to add additional feature reports as needed
+    }
+
+    //TODO additional feature reports may be strung together. Parse them all.
+    return 0;
 }
 
 //This function pulls the data from the input report
@@ -652,6 +775,13 @@ bool BNO080::readFRSdata(uint16_t recordID, uint8_t startLocation, uint8_t words
     }
 }
 
+void  BNO080::flushChannel(uint8_t channel){
+     shtpData[0] = SENSOR_FLUSH;
+     shtpData[1] = channel;
+
+     sendPacket(CHANNEL_CONTROL, 2);
+}
+
 //Send command to reset IC
 //Read all advertisement packets from sensor
 //The sensor has been seen to reset twice if we attempt too much too quickly.
@@ -662,10 +792,28 @@ void BNO080::softReset(void)
 
     //Attempt to start communication with sensor
     sendPacket(CHANNEL_EXECUTABLE, 1); //Transmit packet on channel 1, 1 byte
-
+    vTaskDelay(100 / portTICK_RATE_MS);
     //Read all incoming data and flush it
-    while (receivePacket() == true) ;
-    while (receivePacket() == true) ;
+    receivePacket();
+    vTaskDelay(100 / portTICK_RATE_MS);
+    receivePacket();
+
+    // while (receivePacket() == true) ;
+}
+
+//Send command to reset IC
+//Read all advertisement packets from sensor
+//The sensor has been seen to reset twice if we attempt too much too quickly.
+//This seems to work reliably.
+void BNO080::turnOn(void)
+{
+    shtpData[0] = 2; //On
+
+    //Attempt to start communication with sensor
+    sendPacket(CHANNEL_EXECUTABLE, 1); //Transmit packet on channel 1, 1 byte
+    //Read all incoming data and flush it
+    // receivePacket();
+    // receivePacket() == true);
 }
 
 
@@ -820,6 +968,22 @@ void BNO080::setFeatureCommand(uint8_t reportID, uint16_t timeBetweenReports, ui
     //Transmit packet on channel 2, 17 bytes
     sendPacket(CHANNEL_CONTROL, 17);
 }
+//   BNO080::reportError()
+void BNO080::reportError() {
+    shtpData[0] = SHTP_REPORT_COMMAND_REQUEST;
+    shtpData[1] = 2;
+    shtpData[2] = SENSOR_REPORTID_ERROR_REPORT;
+    shtpData[3] = 0x00;
+    shtpData[4] = 0x00;
+    shtpData[5] = 0x00;
+    shtpData[6] = 0x00;
+    shtpData[7] = 0x00;
+    shtpData[8] = 0x00;
+    shtpData[9] = 0x00;
+    shtpData[10] = 0x00;
+    shtpData[11] = 0x00;
+    sendPacket(CHANNEL_CONTROL, 12);
+}
 
 //Tell the sensor to do a command
 //See 6.3.8 page 41, Command request
@@ -858,7 +1022,6 @@ void BNO080::sendCalibrateCommand(uint8_t thingToCalibrate)
     shtpData[9] = 0; //P6 - Reserved
     shtpData[10] = 0; //P7 - Reserved
     shtpData[11] = 0; //P8 - Reserved*/
-
     for (uint8_t x = 3 ; x < 12 ; x++) //Clear this section of the shtpData array
         shtpData[x] = 0;
 
@@ -917,8 +1080,9 @@ bool BNO080::waitForI2C()
 //Read the contents of the incoming packet into the shtpData array
 bool BNO080::receivePacket(void)
 {
-    // // i2c->write_byte(0, (uint8_t)4); //Ask for four bytes to find out how much data we need to read
-    // //if (waitForI2C() == false) return (false); //Error
+#ifdef BNOO80_LOG_ENABLED
+    printf("receivePacket() \n");
+#endif
     uint8_t new_data[4];
     esp_err_t err = rdBNO80Packet(new_data, 4);
 
@@ -934,7 +1098,7 @@ bool BNO080::receivePacket(void)
 
 #ifdef BNOO80_LOG_ENABLED
     for (int i = 0; i < 4; i++)
-        printf("%d::%02x \n", i, new_data[1]);
+        printf("%d::%02x \n", i, new_data[i]);
 #endif
 
     // //Store the header info.
@@ -945,18 +1109,27 @@ bool BNO080::receivePacket(void)
 
     // //Calculate the number of data bytes in this packet
     int16_t dataLength = ((uint16_t)packetMSB << 8 | packetLSB);
-    dataLength &= ~(1 << 15); //Clear the MSbit.
+    dataLength &= ~(1 << 15);
+    printf("Data length is %d\n", dataLength);
+#ifdef BNOO80_LOG_ENABLED
+
+#endif
+    // if (dataLength > 128)
+    //     return true;//Clear the MSbit.
     //This bit indicates if this package is a continuation of the last. Ignore it for now.
     //TODO catch this as an error and exit
     if (dataLength == 0)
     {
-        //Packet is empty
         return (false); //All done
     }
     dataLength -= 4; //Remove the header bytes from the data count
-    printf("Packet length is :: %d", dataLength);
+#ifdef BNOO80_LOG_ENABLED
+
+#endif
+    printf("Packet length is :: %d \n", dataLength);
     getData(dataLength);
 
+    printf("Returning()\n");
     return (true); //We're done!
 }
 
@@ -965,13 +1138,16 @@ bool BNO080::receivePacket(void)
 //Arduino I2C read limit is 32 bytes. Header is 4 bytes, so max data we can read per interation is 28 bytes
 bool BNO080::getData(uint16_t bytesRemaining)
 {
-    printf("calling getData() %d", bytesRemaining);
+    printf("calling getData() %d \n", bytesRemaining);
+    memset(shtpData, 0, MAX_PACKET_SIZE);
     uint16_t dataSpot = 0; //Start at the beginning of shtpData array
     //Setup a series of chunked 32 byte reads
     while (bytesRemaining > 0)
     {
         uint16_t numberOfBytesToRead = bytesRemaining;
-        // if (numberOfBytesToRead > (I2C_BUFFER_LENGTH - 4)) numberOfBytesToRead = (I2C_BUFFER_LENGTH - 4);
+        if (numberOfBytesToRead > (I2C_BUFFER_LENGTH - 4))
+            numberOfBytesToRead = (I2C_BUFFER_LENGTH - 4);
+
         uint8_t new_array[numberOfBytesToRead + 5];
         rdBNO80Packet(new_array, numberOfBytesToRead + 4); // i2c->write_byte(0, (uint8_t)(numberOfBytesToRead + 4));
         //The first four bytes are header bytes and are throw away
@@ -986,7 +1162,9 @@ bool BNO080::getData(uint16_t bytesRemaining)
             {
                 shtpData[dataSpot++] = new_array[x]; //Store data into the shtpData array
 #ifdef BNOO80_LOG_ENABLED
-                printf("shtpData[%d] = %02x\n", dataSpot - 1, new_array[x]);
+                // if (numberOfBytesToRead <= 16)
+                //     ESP_LOGI(TAG, "shtpData[%d] = %02x\n", dataSpot - 1, new_array[x]);
+                // printf("shtpData[%d] = %02x\n", dataSpot - 1, new_array[x]);
 #endif
             }
         }
@@ -1000,6 +1178,8 @@ bool BNO080::getData(uint16_t bytesRemaining)
 //TODO - Arduino has a max 32 byte send. Break sending into multi packets if needed.
 bool BNO080::sendPacket(uint8_t channelNumber, uint8_t dataLength)
 {
+    printf("sendPacket():: %d \n", dataLength);
+
     uint8_t packetLength = dataLength + 4; //Add four bytes for the header
     if (packetLength > I2C_BUFFER_LENGTH) return (false); //You are trying to send too much. Break into smaller packets.
     // i2c->beginTransmission(_deviceAddress);
@@ -1013,21 +1193,37 @@ bool BNO080::sendPacket(uint8_t channelNumber, uint8_t dataLength)
     // i2c->write_byte(0, packetLength >> 8); //Packet length MSB
     // i2c->write_byte(0, channelNumber); //Channel number
     // i2c->write_byte(0, sequenceNumber[channelNumber]++); //Send the sequence number, increments with each packet sent, different counter for each channel
-    #ifdef BNOO80_LOG_ENABLED
-        printf("header packet sent \n");
-    #endif
-
-    wrBNO80Packet( start_packet_data , 4);
-    //Send the user's data packet
-    uint8_t new_data[255];
-    for (uint8_t i = 0 ; i < dataLength ; i++)
-    {
-        new_data[i] = shtpData[i];
 #ifdef BNOO80_LOG_ENABLED
-        printf("%d :: %2x", i , new_data[i]);
+    printf("header packet sent \n");
 #endif
-        // i2c->write_byte(shtpData[i]);
+
+    uint8_t *packet_t = (uint8_t*) malloc( packetLength + 1 );
+    if (packet_t == NULL)
+        return false;
+
+    memcpy(packet_t, start_packet_data , 4);
+
+    for (int i = 0; i < dataLength; i++)
+    {
+        packet_t[i + 4] = shtpData[i];
     }
+    wrBNO80(packet_t , packetLength);
+    //Send the user's data packet
+    // uint8_t new_data[255];
+    // for (uint8_t i = 0 ; i < dataLength ; i++)
+    // {
+    //     new_data[i] = shtpData[i];
+
+    //     // i2c->write_byte(shtpData[i]);
+    // }
+// #ifdef BNOO80_LOG_ENABLED
+    for (int i = 4; i < packetLength; i++) {
+        printf("%2x ", packet_t[i]);
+        if (packetLength % 50 == 0)
+            printf("\n");
+    }
+    printf("\n");
+// #endif
     return (true);
 }
 
@@ -1042,20 +1238,20 @@ void BNO080::printPacket(void)
         puts("Header:");
         for (uint8_t x = 0 ; x < 4 ; x++)
         {
-            puts(" ");
-            if (shtpHeader[x] < 0x10) puts("0");
-            printf("%x\n", shtpHeader[x]);
+            // if (shtpHeader[x] < 0x10) puts("0");
+            printf("%2x ", shtpHeader[x]);
         }
 
         uint8_t printLength = packetLength - 4;
         if (printLength > 40) printLength = 40; //Artificial limit. We don't want the phone book.
 
-        puts(" Body:");
-        for (uint8_t x = 0 ; x < printLength ; x++)
+        puts("\n Body:");
+        for (uint8_t x = 0 ; x < packetLength ; x++)
         {
-            puts(" ");
-            if (shtpData[x] < 0x10) puts("0");
-            printf("%x\n", shtpData[x]);
+            // if (shtpData[x] < 0x10) puts("0");
+            printf("%2x ", shtpData[x]);
+            if (packetLength % 50 == 0)
+                printf("\n");
         }
 
         if (packetLength & 1 << 15)

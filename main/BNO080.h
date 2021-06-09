@@ -31,15 +31,12 @@
 // #include "../I2C/src/I2C.h"
 
 typedef unsigned char byte;
-
 //The default I2C address for the BNO080 on the SparkX breakout is 0x4B. 0x4A is also possible.
 #define BNO080_DEFAULT_ADDRESS 0x4B
-
 //The catch-all default is 32
 #define I2C_BUFFER_LENGTH 200
 
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
 //Registers
 const byte CHANNEL_COMMAND = 0;
 const byte CHANNEL_EXECUTABLE = 1;
@@ -58,6 +55,7 @@ const byte CHANNEL_GYRO = 5;
 #define SHTP_REPORT_PRODUCT_ID_REQUEST 0xF9
 #define SHTP_REPORT_BASE_TIMESTAMP 0xFB
 #define SHTP_REPORT_SET_FEATURE_COMMAND 0xFD
+#define SHTP_REPORT_GET_FEATURE_RESPONSE 0xFC
 
 //All the different sensors and features we can get reports from
 //These are used when enabling a given sensor
@@ -81,6 +79,10 @@ const byte CHANNEL_GYRO = 5;
 #define FRS_RECORDID_MAGNETIC_FIELD_CALIBRATED 0xE309
 #define FRS_RECORDID_ROTATION_VECTOR 0xE30B
 
+
+#define SENSOR_REPORTID_ERROR_REPORT 0x01
+
+#define SENSOR_FLUSH 0xF0
 //Command IDs from section 6.4, page 42
 //These are used to calibrate, initialize, set orientation, tare etc the sensor
 #define COMMAND_ERRORS 1
@@ -110,9 +112,6 @@ BNO080(int32_t sensorID, int address, int bus) {
 	// i2c = new I2C(bus,address);
         _sensorID = sensorID;
         _deviceAddress = address;
-
-	
-
 }
 
 ~BNO080() {
@@ -121,9 +120,7 @@ BNO080(int32_t sensorID, int address, int bus) {
 
 
     bool begin(); //By default use the default I2C addres, and use Wire port
-
-   
-
+    void turnOn();
 	void softReset(); //Try to reset the IMU via software
 	uint8_t resetReason(); //Query the IMU for the reason it last reset
 
@@ -146,6 +143,7 @@ BNO080(int32_t sensorID, int address, int bus) {
 
 	bool dataAvailable(void);
 	void parseInputReport(void);
+	uint16_t parseCommandReport();
 	
 	float getQuatI();
 	float getQuatJ();
@@ -196,6 +194,10 @@ BNO080(int32_t sensorID, int address, int bus) {
 	void frsReadRequest(uint16_t recordID, uint16_t readOffset, uint16_t blockSize);
 	bool readFRSdata(uint16_t recordID, uint8_t startLocation, uint8_t wordsToRead);
 
+	//Report errors
+	void reportError();
+	void flushChannel(uint8_t channel);
+
 	//Global Variables
 	uint8_t shtpHeader[4]; //Each packet has a header of 4 bytes
 	uint8_t shtpData[MAX_PACKET_SIZE]; 
@@ -211,7 +213,7 @@ BNO080(int32_t sensorID, int address, int bus) {
     uint8_t _deviceAddress; //Keeps track of I2C address. setI2CAddress changes this.
      int32_t _sensorID;
 
-    bool _printDebug = false; //Flag to print debugging variables
+    bool _printDebug = true; //Flag to print debugging variables
 
 	//These are the raw sensor values pulled from the user requested Input Report
 	uint16_t rawAccelX, rawAccelY, rawAccelZ, accelAccuracy;
@@ -222,6 +224,7 @@ BNO080(int32_t sensorID, int address, int bus) {
 	uint8_t stabilityClassifier;
 	uint8_t activityClassifier;
 	uint8_t *_activityConfidences; //Array that store the confidences of the 9 possible activities
+	uint8_t calibrationStatus;
 	
 	//These Q values are defined in the datasheet but can also be obtained by querying the meta data records
 	//See the read metadata example for more info
