@@ -10,7 +10,3 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(main-test)
 
 
-idf_component_register(SRCS main/BNO080.cpp
-                    INCLUDE_DIRS "."
-                    REQUIRES json
-)
