@@ -57,7 +57,7 @@
 
 #define I2C_SCL_IO              22  //19               /*!< gpio number for I2C master clock */
 #define I2C_SDA_IO              21  //18               /*!< gpio number for I2C master data  */
-#define I2C_FREQ_HZ             100000           /*!< I2C master clock frequency */
+#define I2C_FREQ_HZ             400000           /*!< I2C master clock frequency */
 #define I2C_PORT_NUM            I2C_NUM_0        /*!< I2C port number for master dev */
 #define I2C_TX_BUF_DISABLE      0                /*!< I2C master do not need buffer */
 #define I2C_RX_BUF_DISABLE      0                /*!< I2C master do not need buffer */
@@ -198,32 +198,31 @@ esp_err_t wrBNO80Packet( uint8_t *pdata, uint8_t count )
 
 static esp_err_t i2c_master_init()
 {
-    // ESP_LOGD(tag, ">> i2cScanner");
-    gpio_set_direction(GPIO_NUM_33, GPIO_MODE_INPUT_OUTPUT_OD);
-    gpio_set_level(GPIO_NUM_33, 0);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    gpio_set_level(GPIO_NUM_33, 1);
-    vTaskDelay(pdMS_TO_TICKS(200));
+    // // ESP_LOGD(tag, ">> i2cScanner");
+    // gpio_set_direction(GPIO_NUM_33, GPIO_MODE_INPUT_OUTPUT_OD);
+    // gpio_set_level(GPIO_NUM_33, 0);
+    // vTaskDelay(pdMS_TO_TICKS(200));
+    // gpio_set_level(GPIO_NUM_33, 1);
+    // vTaskDelay(pdMS_TO_TICKS(200));
 
-    gpio_set_direction(GPIO_NUM_19, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(GPIO_NUM_19, GPIO_PULLUP_ONLY);
-    i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+    // gpio_set_direction(GPIO_NUM_19, GPIO_MODE_INPUT);
+    // gpio_set_pull_mode(GPIO_NUM_19, GPIO_PULLUP_ONLY);
+    // i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
 
-    i2c_config_t conf;
-    conf.mode = I2C_MODE_MASTER;
-    conf.sda_io_num = 21;
-    conf.scl_io_num = 22;
-    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.master.clk_speed = 400000;
-    conf.clk_flags = 0;
-    i2c_param_config(I2C_NUM_0, &conf);
+    // i2c_config_t conf;
+    // conf.mode = I2C_MODE_MASTER;
+    // conf.sda_io_num = 21;
+    // conf.scl_io_num = 22;
+    // conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
+    // conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
+    // conf.master.clk_speed = 400000;
+    // conf.clk_flags = 0;
+    // i2c_param_config(I2C_NUM_0, &conf);
 
-    esp_err_t clkStretchErr = i2c_set_timeout(I2C_NUM_0, 1000000);
-    if (clkStretchErr != ESP_OK) {
-        ESP_LOGE(TAG, "Clock stretching is not being enabled!");
-    }
-
+    // esp_err_t clkStretchErr = i2c_set_timeout(I2C_NUM_0, 1000000);
+    // if (clkStretchErr != ESP_OK) {
+    //     ESP_LOGE(TAG, "Clock stretching is not being enabled!");
+    // }
     // After BNO resets it just respondes for particular time , and it goes back to sleep again.// So we need to tell the BNO to be on mode instantly.
     int i;
     esp_err_t espRc;
@@ -254,9 +253,7 @@ static esp_err_t i2c_master_init()
         i2c_cmd_link_delete(cmd);
     }
     printf("\n");
-
     return ESP_OK;
-
 }
 
 
@@ -288,7 +285,7 @@ void gpioConfig() {
 bool BNO080::begin()
 {
 
-    i2c_master_init();
+    // i2c_master_init();
 
     printf("Initialization of the i2c driver \n");
     softReset();
@@ -351,7 +348,7 @@ bool BNO080::dataAvailable(void)
 
     if (receivePacket())
     {
-        printf("dataAvailable %2x \n", shtpHeader[2]);
+        // printf("dataAvailable %2x \n", shtpHeader[2]);
         //Check to see if this packet is a sensor reporting its data to us
         if (shtpHeader[2] == CHANNEL_REPORTS && shtpData[0] == SHTP_REPORT_BASE_TIMESTAMP)
         {
@@ -373,7 +370,7 @@ bool BNO080::dataAvailable(void)
 
 uint16_t BNO080::parseCommandReport(void)
 {
-    printf("parseCommandReport() %2x\n", shtpData[0]);
+    // printf("parseCommandReport() %2x\n", shtpData[0]);
     if (shtpData[0] == SHTP_REPORT_COMMAND_RESPONSE)
     {
         //The BNO080 responds with this report to command requests. It's up to use to remember which command we issued.
@@ -775,11 +772,11 @@ bool BNO080::readFRSdata(uint16_t recordID, uint8_t startLocation, uint8_t words
     }
 }
 
-void  BNO080::flushChannel(uint8_t channel){
-     shtpData[0] = SENSOR_FLUSH;
-     shtpData[1] = channel;
+void  BNO080::flushChannel(uint8_t channel) {
+    shtpData[0] = SENSOR_FLUSH;
+    shtpData[1] = channel;
 
-     sendPacket(CHANNEL_CONTROL, 2);
+    sendPacket(CHANNEL_CONTROL, 2);
 }
 
 //Send command to reset IC
@@ -799,6 +796,23 @@ void BNO080::softReset(void)
     receivePacket();
 
     // while (receivePacket() == true) ;
+}
+
+void BNO080::checkBno() {
+    if (dataAvailable() == true) {
+        // printf("data :: %f\n", tt.getQuatI());
+        // vTaskDelay(70 / portTICK_PERIOD_MS);
+        // float x = tt.getGyroX();
+        // float y = tt.getGyroY();
+        // float z = tt.getGyroZ();
+        float x = getAccelX();
+        float y = getAccelY();
+        float z = getAccelZ();
+        // byte linAccuracy = myIMU.getLinAccelAccuracy();
+        // printf("data X:: %f\n", x);
+        // printf("data Y:: %f\n", y);
+        // printf("data Z:: %f\n", z);
+    }
 }
 
 //Send command to reset IC
@@ -1110,7 +1124,7 @@ bool BNO080::receivePacket(void)
     // //Calculate the number of data bytes in this packet
     int16_t dataLength = ((uint16_t)packetMSB << 8 | packetLSB);
     dataLength &= ~(1 << 15);
-    printf("Data length is %d\n", dataLength);
+    // printf("Data length is %d\n", dataLength);
 #ifdef BNOO80_LOG_ENABLED
 
 #endif
@@ -1126,10 +1140,10 @@ bool BNO080::receivePacket(void)
 #ifdef BNOO80_LOG_ENABLED
 
 #endif
-    printf("Packet length is :: %d \n", dataLength);
+    // printf("Packet length is :: %d \n", dataLength);
     getData(dataLength);
 
-    printf("Returning()\n");
+    // printf("Returning()\n");
     return (true); //We're done!
 }
 
@@ -1138,7 +1152,7 @@ bool BNO080::receivePacket(void)
 //Arduino I2C read limit is 32 bytes. Header is 4 bytes, so max data we can read per interation is 28 bytes
 bool BNO080::getData(uint16_t bytesRemaining)
 {
-    printf("calling getData() %d \n", bytesRemaining);
+    // printf("calling getData() %d \n", bytesRemaining);
     memset(shtpData, 0, MAX_PACKET_SIZE);
     uint16_t dataSpot = 0; //Start at the beginning of shtpData array
     //Setup a series of chunked 32 byte reads

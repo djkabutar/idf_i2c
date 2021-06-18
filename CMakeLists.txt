@@ -8,3 +8,9 @@ set(EXTRA_COMPONENT_DIRS $ENV{IDF_PATH}/examples/common_components/protocol_exam
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(main-test)
+
+
+idf_component_register(SRCS main/BNO080.cpp
+                    INCLUDE_DIRS "."
+                    REQUIRES json
+)

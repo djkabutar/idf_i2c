@@ -29,12 +29,15 @@
 #define _BNO080_H
 // #include <inttypes.h>
 // #include "../I2C/src/I2C.h"
-
+#include <functional>
 typedef unsigned char byte;
 //The default I2C address for the BNO080 on the SparkX breakout is 0x4B. 0x4A is also possible.
 #define BNO080_DEFAULT_ADDRESS 0x4B
 //The catch-all default is 32
 #define I2C_BUFFER_LENGTH 200
+
+// typedef std::function<void(std::string message)> onMessageFunction;
+typedef std::function<void(uint8_t eventType)> onEventFunction;
 
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 //Registers
@@ -117,7 +120,8 @@ BNO080(int32_t sensorID, int address, int bus) {
 ~BNO080() {
 	// delete i2c;
 }
-
+	
+	onEventFunction _callBackEvent;
 
     bool begin(); //By default use the default I2C addres, and use Wire port
     void turnOn();
@@ -197,6 +201,8 @@ BNO080(int32_t sensorID, int address, int bus) {
 	//Report errors
 	void reportError();
 	void flushChannel(uint8_t channel);
+
+	void checkBno();
 
 	//Global Variables
 	uint8_t shtpHeader[4]; //Each packet has a header of 4 bytes
