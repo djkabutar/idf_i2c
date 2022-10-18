@@ -52,6 +52,7 @@ static void gpio_task_example(void* arg)
     for(;;) {
         if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
           printf("GPIO[%d] intr\n", io_num);
+          vTaskDelay(100 / portTICK_PERIOD_MS);
           i2c_transactions();
         }
     }
@@ -325,39 +326,13 @@ void i2c_transactions()
   i2c_read(0x00);
   i2c_read(0x01);
 
-  i2c_write(0xFF, 0xD1);
-
-  printf("HTotal: ");
-  i2c_read(0xDB);
-  i2c_read(0xDC);
-
-  printf("VTotal: ");
-  i2c_read(0xDD);
-  i2c_read(0xDE);
-
-  printf("Hsync: ");
-  i2c_read(0xDF);
-  i2c_read(0xE0);
-
-  printf("Hstart: ");
-  i2c_read(0xE1);
-  i2c_read(0xE2);
-
-  printf("Vstart: ");
-  i2c_read(0xE3);
-  i2c_read(0xE4);
-
-  printf("Vsync: ");
-  i2c_read(0xE5);
-  i2c_read(0xE6);
-
-  printf("Hactive: ");
-  i2c_read(0xE7);
-  i2c_read(0xE8);
-
-  printf("Vactive: ");
-  i2c_read(0xE9);
-  i2c_read(0xEA);
+  printf("Pixel Clock: ");
+  i2c_write(0xFF, 0xA0);
+  i2c_write(0x34, 0x21);
+  i2c_write(0xFF, 0xB8);
+  i2c_read(0xB1);
+  i2c_read(0xB2);
+  i2c_read(0xB3);
 
   i2c_write(0xFF, 0x80);
   i2c_write(0xEE, 0x00);
